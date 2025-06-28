@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
 import "./IStakingProtocol.sol";
-
-import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 
 
@@ -14,28 +13,24 @@ contract StakingProtocol is Context, IStakingProtocol {
     uint256 public poolCount;
     uint256 public cliff;
     bool public paused;
-    public nftStake; // user => poolId => tokenId => info
 
-    // Reserved storage space for upgradeability
-    uint256[50] private __gap;
 
     mapping(uint256 => PoolInfo) public pool;
     mapping(address => mapping(uint256 => StakingInfo)) public stake;
     mapping(uint256 => bool) public poolStatus;
     mapping(uint256 => bool) public poolPaused;
     mapping(uint256 => address) public nftContractPerPool;
-    mapping(address => mapping(uint256 => mapping(uint256 => NFTStakeInfo)))
+    mapping(address => mapping(uint256 => mapping(uint256 => NFTStakeInfo))) public nftStake; // user => poolId => tokenId => info
+    mapping(uint256 => address) public rewardStrategy;
 
-    struct NFTStakeInfo {
-        uint256 tokenId;
-        uint256 stakeTime;
-    }
+    // Reserved storage space for upgradeability
+    uint256[50] private __gap;
 
     // ---- Events ----
     event OwnershipTransferred(address indexed oldOwner, address indexed newOwner);
     event Initialized(address indexed by, uint256 at);
     event NFTStaked(address indexed user, uint256 indexed poolId, uint256 tokenId, uint256 time);
-event NFTUnstaked(address indexed user, uint256 indexed poolId, uint256 tokenId, uint256 time);
+    event NFTUnstaked(address indexed user, uint256 indexed poolId, uint256 tokenId, uint256 time);
 
 
     // ---- Modifiers ----
@@ -90,6 +85,12 @@ event NFTUnstaked(address indexed user, uint256 indexed poolId, uint256 tokenId,
         emit OwnershipTransferred(owner, newOwner);
         owner = newOwner;
     }
+
+
+    function setRewardStrategy(uint256 poolId, address strategy) external onlyOwner {
+    require(poolId > 0 && poolId <= poolCount, "Invalid pool");
+    rewardStrategy[poolId] = strategy;
+}
 
     // ---- Pool Management ----
     function createPool(address stakingToken, address rewardToken, uint256 yieldPerSecond) external onlyOwner {
@@ -166,14 +167,10 @@ event NFTUnstaked(address indexed user, uint256 indexed poolId, uint256 tokenId,
     }
 
     function fetchUnclaimedReward(uint256 poolId) public view returns (uint256) {
-        StakingInfo memory _info = stake[_msgSender()][poolId];
-        PoolInfo memory _pool = pool[poolId];
+      if (rewardStrategy[poolId] != address(0)) {
+          return IRewardStrategy(rewardStrategy[poolId]).calculateReward(_msgSender(), poolId, _info.stakeAmount, _info.stakeTime);
+      }
 
-        if (_info.stakeAmount == 0 || block.timestamp < _info.stakeTime + cliff) return 0;
-
-        uint256 vestedDuration = block.timestamp - _info.stakeTime - cliff;
-        uint256 reward = (_info.stakeAmount * vestedDuration * _pool.yieldPerSecond) / 31536000;
-        return reward;
     }
 
     function stakeInfo(address user, uint256 poolId) external view returns (StakingInfo memory) {
