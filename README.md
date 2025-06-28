@@ -1,31 +1,76 @@
----
+# Staking-Protocol
 
-# Staking Protocol
+A flexible and secure staking smart contract system supporting both ERC20 and ERC721 tokens, with customizable reward strategies and safe transfer mechanisms.
 
-Welcome to the Staking Protocol repository. This project is a staking smart contract with the ability to stake ERC20 and ERC721 tokens with safe transfer.
+## Features
 
-## Overview
+- **Supports ERC20 and ERC721 staking:** Users can stake fungible or non-fungible tokens.
+- **Customizable reward strategies:** Easily implement and plug in new reward logic.
+- **Safe transfer:** Assets are transferred securely during staking and withdrawal.
+- **Upgradeable architecture:** Proxy design allows for contract upgrades.
+- **Comprehensive testing:** Includes JavaScript/Hardhat-based test suite.
+- **Well-documented:** Protocol specification PDF included.
 
-The goal of this project is to create a secure and efficient staking protocol for ERC20 and ERC721 tokens. The protocol is implemented as a smart contract on the Ethereum blockchain, using the Solidity programming language.
+## Structure
 
-## Key Components
-
-- **contracts**: This directory contains the Solidity smart contract files for the staking protocol.
-
-- **migrations**: This directory contains the migration scripts for deploying the smart contracts to the Ethereum blockchain.
-
-- **test**: This directory contains the test scripts for testing the smart contracts.
-
-- **truffle-config.js**: This file contains the configuration for the Truffle development environment.
-
-- **package.json**: This file contains the list of project dependencies.
-
-- **Staking Protocol.pdf**: This file contains a detailed description of the staking protocol.
+```
+contracts/
+  RewardStrategyFactory.sol
+  core/
+  interfaces/
+  proxy/
+  strategies/
+  test/
+test/
+  StakingProtocol.test.js
+scripts/
+hardhat.config.js
+package.json
+README.md
+Staking Protocol.pdf
+```
 
 ## Getting Started
 
-To get started with this project, clone the repository and install the required Node.js packages using `npm install`. You can then compile the smart contracts using `truffle compile`, and deploy them to the Ethereum blockchain using `truffle migrate`.
+1. **Install dependencies:**
+   ```bash
+   yarn install
+   # or
+   npm install
+   ```
 
-Please note that this project is a work in progress, and the smart contracts should not be used for actual staking without further testing and validation.
+2. **Compile contracts:**
+   ```bash
+   npx hardhat compile
+   ```
+
+3. **Run tests:**
+   ```bash
+   npx hardhat test
+   ```
+
+4. **Deploy contracts:**
+   Edit deployment scripts in the `scripts/` directory and run with Hardhat.
+
+## Components
+
+- **RewardStrategyFactory.sol:** Factory for creating/managing reward strategies.
+- **core/:** Core protocol logic and state management.
+- **interfaces/:** Interface contracts for staking and token standards.
+- **proxy/:** Upgradeability/proxy contracts.
+- **strategies/:** Implementations of various reward strategies.
+- **test/:** Test contracts and JavaScript tests.
+- **scripts/:** Deployment and utility scripts.
+
+## Documentation
+
+- See `Staking Protocol.pdf` for the protocol specification and detailed explanation.
+- The `report/` directory may contain audit or coverage reports.
+
+## License
+
+See [LICENSE](./LICENSE).
 
 ---
+
+**Note:** For a full directory listing, visit the [repository contents page](https://github.com/git-varun/Staking-Protocol/contents/).
