@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import "./IRewardStrategy.sol";
+import "../interfaces/IRewardStrategy.sol";
 
 // Fixed per block reward
 contract FixedPerBlockStrategy is IRewardStrategy {

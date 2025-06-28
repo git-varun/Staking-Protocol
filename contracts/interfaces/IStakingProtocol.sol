@@ -20,6 +20,12 @@ interface IStakingProtocol {
         uint256 stakeTime;
     }
 
+    event Staked(address indexed user, uint256 amount, uint256 poolId, uint256 time);
+    event Claimed(address indexed user, uint256 reward, uint256 poolId, uint256 time, bool unstake);
+    event EmergencyWithdraw(address indexed user, uint256 poolId, uint256 amount, uint256 time);
+    event PoolCreated(uint256 indexed poolId, address stakingToken, address rewardToken, uint256 yieldPerSecond);
+
+
     // Admin
     function setCliff(uint256 _cliff) external;
     function changeStakingStatus(bool status) external;

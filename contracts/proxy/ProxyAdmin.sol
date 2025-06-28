@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import "./StakingProxy.sol";
+
 // Proxy Admin Contract
 contract ProxyAdmin {
     address public owner;
@@ -14,7 +16,7 @@ contract ProxyAdmin {
         owner = msg.sender;
     }
 
-    function upgrade(address proxyAddress, address newImplementation) external onlyOwner {
+    function upgrade(address payable proxyAddress, address newImplementation) external onlyOwner {
         StakingProxy(proxyAddress).upgradeTo(newImplementation);
     }
 

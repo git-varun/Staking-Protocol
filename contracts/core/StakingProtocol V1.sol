@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
-import "./IStakingProtocol.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+
+import "../interfaces/IStakingProtocol.sol";
+import "../interfaces/IRewardStrategy.sol";
+
 
 contract StakingProtocol is Context, IStakingProtocol {
     address public owner;
@@ -104,8 +108,8 @@ contract StakingProtocol is Context, IStakingProtocol {
             }
         }
 
-        _info.stakeAmount += amount;
-        _info.stakeTime = block.timestamp;
+        _info.stakeAmount += uint96(amount);
+        _info.stakeTime = uint64(block.timestamp);
         _pool.totalStaked += amount;
         require(IERC20(_pool.stakingToken).transferFrom(_msgSender(), address(this), amount), "Stake transfer failed");
         emit Staked(_msgSender(), amount, poolId, block.timestamp);
@@ -126,7 +130,7 @@ contract StakingProtocol is Context, IStakingProtocol {
             require(IERC20(_pool.stakingToken).transfer(_msgSender(), amount), "Unstake transfer failed");
         }
 
-        _info.stakeTime = block.timestamp;
+        _info.stakeTime = uint64(block.timestamp);
         require(IERC20(_pool.rewardToken).transfer(_msgSender(), reward), "Reward transfer failed");
         emit Claimed(_msgSender(), reward, poolId, block.timestamp, unStaking);
     }
@@ -182,7 +186,7 @@ contract StakingProtocol is Context, IStakingProtocol {
         uint256 reward = fetchUnclaimedNFTReward(poolId, tokenId);
         delete nftStake[_msgSender()][poolId][tokenId];
 
-        require(IERC721(nftAddress).transferFrom(address(this), _msgSender(), tokenId), "NFT return failed");
+        IERC721(nftAddress).transferFrom(address(this), _msgSender(), tokenId);
 
         if (reward > 0) {
             require(IERC20(pool[poolId].rewardToken).transfer(_msgSender(), reward), "Reward transfer failed");

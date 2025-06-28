@@ -1,8 +1,10 @@
 // SPDX License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import "./IRewardStrategy.sol";
-import "./RewardStrategy.sol";
+import "./interfaces/IRewardStrategy.sol";
+import "./strategies/LinearRewardStrategy.sol";
+import "./strategies/FixedPerBlockStrategy.sol";
+import "./strategies/NFTBoostedStrategy.sol";
 
 // Factory Contract
 contract RewardStrategyFactory {
