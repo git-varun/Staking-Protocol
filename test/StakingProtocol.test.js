@@ -55,23 +55,26 @@ describe("StakingProtocol", function () {
     const reward = await ethers.deployContract("SampleERC20");
     await proxyAsStaking.createPool(await token.getAddress(), await reward.getAddress(), 100);
 
+    // Get the latest poolId
+    const poolId = await proxyAsStaking.poolCount();
+
     // Mint and approve tokens
     await token.mint(user.address, 1000);
-    await token.connect(user).approve(proxyAsStaking.target, 500);
+    await token.connect(user).approve(await proxy.getAddress(), 500);
 
-    // Stake tokens
-    await proxyAsStaking.connect(user).stake(1, 500);
+    // Stake tokens in the correct pool
+    await proxyAsStaking.connect(user).stakeToken(poolId, 500);
 
-    const userInfo = await proxyAsStaking.fetchUserInfo(1, user.address);
-    expect(userInfo.amount).to.equal(500);
+    const stakeInfo = await proxyAsStaking.stakeInfo(user.address, poolId);
+    expect(stakeInfo.stakeAmount).to.equal(500);
   });
 
   it("should not allow staking before pool is created", async () => {
     const token = await ethers.deployContract("SampleERC20");
     await token.mint(user.address, 1000);
-    await token.connect(user).approve(proxyAsStaking.target, 500);
+    await token.connect(user).approve(await proxy.getAddress(), 500); // <-- FIXED LINE
     await expect(
-      proxyAsStaking.connect(user).stake(1, 500)
+      proxyAsStaking.connect(user).stakeToken(1, 500)
     ).to.be.reverted;
   });
 

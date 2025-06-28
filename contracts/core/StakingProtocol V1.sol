@@ -155,11 +155,7 @@ contract StakingProtocol is Context, IStakingProtocol {
     }
 
     function stakeInfo(address user, uint256 poolId) external view returns (StakingInfo memory) {
-        if (block.timestamp >= stake[user][poolId].stakeTime + cliff) {
-            return stake[user][poolId];
-        } else {
-            return stake[address(0)][0];
-        }
+        return stake[user][poolId];
     }
 
     function fetchPoolInfo(uint256 poolId) external view returns (PoolInfo memory) {
