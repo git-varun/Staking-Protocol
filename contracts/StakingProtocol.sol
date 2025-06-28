@@ -1,214 +1,237 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.12;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/Context.sol";
 import "./IStakingProtocol.sol";
 
-contract StakingProtocol is IStakingProtocol, Ownable {
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+
+
+
+contract StakingProtocol is Context, IStakingProtocol {
+    // ---- Storage ----
+    address public owner;
     uint256 public poolCount;
     uint256 public cliff;
     bool public paused;
+    public nftStake; // user => poolId => tokenId => info
+
+    // Reserved storage space for upgradeability
+    uint256[50] private __gap;
 
     mapping(uint256 => PoolInfo) public pool;
     mapping(address => mapping(uint256 => StakingInfo)) public stake;
     mapping(uint256 => bool) public poolStatus;
+    mapping(uint256 => bool) public poolPaused;
+    mapping(uint256 => address) public nftContractPerPool;
+    mapping(address => mapping(uint256 => mapping(uint256 => NFTStakeInfo)))
 
-    function setCliff(uint256 _cliff)
-        external
-        virtual
-        override
-        onlyOwner
-        returns (bool)
-    {
+    struct NFTStakeInfo {
+        uint256 tokenId;
+        uint256 stakeTime;
+    }
+
+    // ---- Events ----
+    event OwnershipTransferred(address indexed oldOwner, address indexed newOwner);
+    event Initialized(address indexed by, uint256 at);
+    event NFTStaked(address indexed user, uint256 indexed poolId, uint256 tokenId, uint256 time);
+event NFTUnstaked(address indexed user, uint256 indexed poolId, uint256 tokenId, uint256 time);
+
+
+    // ---- Modifiers ----
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not owner");
+        _;
+    }
+
+    modifier whenPoolActive(uint256 poolId) {
+        require(!paused, "Protocol paused");
+        require(poolStatus[poolId], "Inactive pool");
+        require(!poolPaused[poolId], "Pool paused");
+        _;
+    }
+
+    // ---- Initializer ----
+    bool private _initialized;
+
+    function initialize(address _owner, uint256 _cliff) external {
+        require(!_initialized, "Already initialized");
+        owner = _owner;
         cliff = _cliff;
-        return true;
+        poolCount = 0;
+        paused = false;
+        _initialized = true;
+
+        emit OwnershipTransferred(address(0), _owner);
+        emit Initialized(_owner, block.timestamp);
     }
 
-    function changeStakingStatus(bool stakingStatus_)
-        external
-        virtual
-        override
-        onlyOwner
-        returns (bool)
-    {
-        paused = stakingStatus_;
-        return true;
+    // ---- Admin Controls ----
+    function setCliff(uint256 _cliff) external onlyOwner {
+        cliff = _cliff;
     }
 
-    function changePoolStatus(uint256 poolId, bool poolStatus_)
-        external
-        virtual
-        override
-        onlyOwner
-        returns (bool)
-    {
-        require(poolId <= poolCount, "Inavlid Pool ID.");
-        poolStatus[poolId] = poolStatus_;
-        emit PoolStatusChanged(poolId, poolStatus_);
-        return true;
+    function changeStakingStatus(bool _paused) external onlyOwner {
+        paused = _paused;
     }
 
-    function createPool(
-        address stakingToken,
-        address rewardToken,
-        uint256 yieldPerSecond
-    ) external virtual override onlyOwner returns (bool) {
-        require(
-            stakingToken != address(0) && rewardToken != address(0),
-            "Invalid Stake Or Reward Token Address"
-        );
+    function pausePool(uint256 poolId, bool state) external onlyOwner {
+        require(poolId > 0 && poolId <= poolCount, "Invalid pool");
+        poolPaused[poolId] = state;
+    }
+
+    function changePoolStatus(uint256 poolId, bool active) external onlyOwner {
+        require(poolId > 0 && poolId <= poolCount, "Invalid pool");
+        poolStatus[poolId] = active;
+    }
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "Zero address");
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
+    }
+
+    // ---- Pool Management ----
+    function createPool(address stakingToken, address rewardToken, uint256 yieldPerSecond) external onlyOwner {
+        require(stakingToken != address(0) && rewardToken != address(0), "Zero address");
+
         poolCount += 1;
-        pool[poolCount] = PoolInfo(
-            stakingToken,
-            rewardToken,
-            yieldPerSecond,
-            0
-        );
+        pool[poolCount] = PoolInfo(stakingToken, rewardToken, yieldPerSecond, 0);
+        poolStatus[poolCount] = true;
+
         emit PoolCreated(poolCount, stakingToken, rewardToken, yieldPerSecond);
-        return true;
     }
 
-    function stakeToken(uint256 poolId, uint256 amount)
-        external
-        virtual
-        override
-        returns (bool)
-    {
-        require(!paused, "Staking Is Paused.");
-        require(poolId <= poolCount, "Invalid Pool ID.");
-        require(poolStatus[poolId], "Pool Is Not Active");
+    // ---- Staking Logic ----
+    function stakeToken(uint256 poolId, uint256 amount) external whenPoolActive(poolId) {
+        PoolInfo storage _pool = pool[poolId];
+        StakingInfo storage _info = stake[_msgSender()][poolId];
 
-        PoolInfo storage _poolInfo = pool[poolId];
-        StakingInfo storage _stakeInfo = stake[_msgSender()][poolId];
-        address tokenAddress = _poolInfo.stakingToken;
+        require(IERC20(_pool.stakingToken).allowance(_msgSender(), address(this)) >= amount, "Insufficient allowance");
+        require(IERC20(_pool.stakingToken).balanceOf(_msgSender()) >= amount, "Insufficient balance");
 
-        require(
-            IERC20(tokenAddress).allowance(_msgSender(), address(this)) >=
-                amount,
-            "Not Have Enough Allowance"
-        );
-        require(
-            IERC20(tokenAddress).balanceOf(_msgSender()) >= amount,
-            "Sender Does Not Have Enough Balance"
-        );
-
-        if (_stakeInfo.stakeAmount > 0) {
-            uint256 unclaimedReward = fetchUnclaimedReward(poolId);
-
-            assert(
-                IERC20(_poolInfo.rewardToken).transfer(
-                    _msgSender(),
-                    unclaimedReward
-                )
-            );
+        if (_info.stakeAmount > 0) {
+            uint256 reward = fetchUnclaimedReward(poolId);
+            if (reward > 0) {
+                require(IERC20(_pool.rewardToken).transfer(_msgSender(), reward), "Reward transfer failed");
+            }
         }
 
-        _stakeInfo.stakeAmount += amount;
-        _stakeInfo.stakeTime = block.timestamp;
-        _poolInfo.totalStaked += amount;
+        _info.stakeAmount += amount;
+        _info.stakeTime = block.timestamp;
+        _pool.totalStaked += amount;
 
-        assert(
-            IERC20(_poolInfo.stakingToken).transferFrom(
-                _msgSender(),
-                address(this),
-                amount
-            )
-        );
+        require(IERC20(_pool.stakingToken).transferFrom(_msgSender(), address(this), amount), "Stake transfer failed");
 
         emit Staked(_msgSender(), amount, poolId, block.timestamp);
-
-        return true;
     }
 
-    function claimToken(uint256 poolId, bool unStaking)
-        external
-        virtual
-        override
-        returns (bool)
-    {
-        require(!paused, "Staking Is Paused");
-        uint256 unclaimedReward = fetchUnclaimedReward(poolId);
-        require(unclaimedReward > 0, "No Reward To Claim");
+    function claimToken(uint256 poolId, bool unStaking) external whenPoolActive(poolId) {
+        StakingInfo storage _info = stake[_msgSender()][poolId];
+        PoolInfo storage _pool = pool[poolId];
 
-        PoolInfo storage _poolInfo = pool[poolId];
-        StakingInfo storage _stakeInfo = stake[_msgSender()][poolId];
+        require(_info.stakeAmount > 0, "Nothing staked");
+        require(block.timestamp >= _info.stakeTime + cliff, "Cliff not passed");
 
-        uint256 amount = _stakeInfo.stakeAmount;
-        _stakeInfo.stakeTime = block.timestamp;
+        uint256 reward = fetchUnclaimedReward(poolId);
+        require(reward > 0, "No reward");
 
         if (unStaking) {
-            _stakeInfo.stakeAmount = 0;
-            _poolInfo.totalStaked -= _stakeInfo.stakeAmount;
+            uint256 amount = _info.stakeAmount;
+            _pool.totalStaked -= amount;
+            _info.stakeAmount = 0;
 
-            assert(
-                IERC20(_poolInfo.stakingToken).transfer(_msgSender(), amount)
-            );
+            require(IERC20(_pool.stakingToken).transfer(_msgSender(), amount), "Unstake transfer failed");
         }
-        assert(
-            IERC20(_poolInfo.rewardToken).transfer(
-                _msgSender(),
-                unclaimedReward
-            )
-        );
 
-        emit Claimed(
-            _msgSender(),
-            unclaimedReward,
-            poolId,
-            block.timestamp,
-            unStaking
-        );
+        _info.stakeTime = block.timestamp;
+        require(IERC20(_pool.rewardToken).transfer(_msgSender(), reward), "Reward transfer failed");
 
-        return true;
+        emit Claimed(_msgSender(), reward, poolId, block.timestamp, unStaking);
     }
 
-    function stakeInfo(address user, uint256 poolId)
-        external
-        view
-        virtual
-        override
-        returns (StakingInfo memory)
-    {
-        StakingInfo storage _stakeInfo = stake[user][poolId];
+    function emergencyWithdraw(uint256 poolId) external {
+        StakingInfo storage _info = stake[_msgSender()][poolId];
+        PoolInfo storage _pool = pool[poolId];
+        uint256 amount = _info.stakeAmount;
 
-        if (block.timestamp > _stakeInfo.stakeTime + cliff) {
+        require(amount > 0, "Nothing to withdraw");
+
+        _info.stakeAmount = 0;
+        _pool.totalStaked -= amount;
+
+        require(IERC20(_pool.stakingToken).transfer(_msgSender(), amount), "Emergency withdraw failed");
+
+        emit EmergencyWithdraw(_msgSender(), poolId, amount, block.timestamp);
+    }
+
+    function fetchUnclaimedReward(uint256 poolId) public view returns (uint256) {
+        StakingInfo memory _info = stake[_msgSender()][poolId];
+        PoolInfo memory _pool = pool[poolId];
+
+        if (_info.stakeAmount == 0 || block.timestamp < _info.stakeTime + cliff) return 0;
+
+        uint256 vestedDuration = block.timestamp - _info.stakeTime - cliff;
+        uint256 reward = (_info.stakeAmount * vestedDuration * _pool.yieldPerSecond) / 31536000;
+        return reward;
+    }
+
+    function stakeInfo(address user, uint256 poolId) external view returns (StakingInfo memory) {
+        if (block.timestamp >= stake[user][poolId].stakeTime + cliff) {
             return stake[user][poolId];
         } else {
             return stake[address(0)][0];
         }
     }
 
-    function fetchUnclaimedReward(uint256 poolId)
-        public
-        view
-        virtual
-        override
-        returns (uint256)
-    {
-        StakingInfo storage _stakeInfo = stake[_msgSender()][poolId];
-        PoolInfo storage _poolInfo = pool[poolId];
-
-        require(_stakeInfo.stakeAmount > 0, "Stake Amount Is Zero");
-
-        uint256 totalStakeTime = block.timestamp - _stakeInfo.stakeTime;
-        uint256 totalReward = _stakeInfo.stakeAmount *
-            totalStakeTime *
-            _poolInfo.yieldPerSecond;
-        totalReward = (totalReward / 31536000);
-
-        return totalReward;
-    }
-
-    /// @dev see {IMtkzStaking-fetchPool}
-    function fetchPoolInfo(uint256 poolId)
-        external
-        view
-        virtual
-        override
-        returns (PoolInfo memory)
-    {
+    function fetchPoolInfo(uint256 poolId) external view returns (PoolInfo memory) {
         return pool[poolId];
     }
+
+    function stakeNFT(uint256 poolId, address nftAddress, uint256 tokenId) external whenPoolActive(poolId) {
+    require(IERC721(nftAddress).ownerOf(tokenId) == _msgSender(), "Not NFT owner");
+    require(nftAddress == nftContractPerPool[poolId], "NFT not allowed in this pool");
+
+
+    NFTStakeInfo storage stakeRecord = nftStake[_msgSender()][poolId][tokenId];
+    require(stakeRecord.stakeTime == 0, "Already staked");
+
+    IERC721(nftAddress).transferFrom(_msgSender(), address(this), tokenId);
+
+    nftStake[_msgSender()][poolId][tokenId] = NFTStakeInfo(tokenId, block.timestamp);
+
+    emit NFTStaked(_msgSender(), poolId, tokenId, block.timestamp);
+}
+
+
+function unstakeNFT(uint256 poolId, address nftAddress, uint256 tokenId) external whenPoolActive(poolId) {
+    NFTStakeInfo storage info = nftStake[_msgSender()][poolId][tokenId];
+    require(info.stakeTime != 0, "NFT not staked");
+
+    require(block.timestamp >= info.stakeTime + cliff, "Cliff not passed");
+
+    uint256 reward = fetchUnclaimedNFTReward(poolId, tokenId);
+    delete nftStake[_msgSender()][poolId][tokenId];
+
+    require(IERC721(nftAddress).transferFrom(address(this), _msgSender(), tokenId), "NFT return failed");
+
+    if (reward > 0) {
+        require(IERC20(pool[poolId].rewardToken).transfer(_msgSender(), reward), "Reward transfer failed");
+    }
+
+    emit NFTUnstaked(_msgSender(), poolId, tokenId, block.timestamp);
+}
+
+    function fetchUnclaimedNFTReward(uint256 poolId, uint256 tokenId) public view returns (uint256) {
+    NFTStakeInfo storage info = nftStake[_msgSender()][poolId][tokenId];
+    PoolInfo storage _pool = pool[poolId];
+
+    if (info.stakeTime == 0 || block.timestamp < info.stakeTime + cliff) return 0;
+
+    uint256 duration = block.timestamp - info.stakeTime - cliff;
+    uint256 reward = duration * _pool.yieldPerSecond; // 1 NFT = fixed rate
+
+    return reward;
+}
+
 }
