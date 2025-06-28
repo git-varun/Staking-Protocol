@@ -5,35 +5,29 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
 import "./IStakingProtocol.sol";
 
-
-
 contract StakingProtocol is Context, IStakingProtocol {
-    // ---- Storage ----
     address public owner;
     uint256 public poolCount;
     uint256 public cliff;
     bool public paused;
-
 
     mapping(uint256 => PoolInfo) public pool;
     mapping(address => mapping(uint256 => StakingInfo)) public stake;
     mapping(uint256 => bool) public poolStatus;
     mapping(uint256 => bool) public poolPaused;
     mapping(uint256 => address) public nftContractPerPool;
-    mapping(address => mapping(uint256 => mapping(uint256 => NFTStakeInfo))) public nftStake; // user => poolId => tokenId => info
+    mapping(address => mapping(uint256 => mapping(uint256 => NFTStakeInfo))) public nftStake;
     mapping(uint256 => address) public rewardStrategy;
 
     // Reserved storage space for upgradeability
     uint256[50] private __gap;
 
-    // ---- Events ----
+    // Events
     event OwnershipTransferred(address indexed oldOwner, address indexed newOwner);
     event Initialized(address indexed by, uint256 at);
     event NFTStaked(address indexed user, uint256 indexed poolId, uint256 tokenId, uint256 time);
     event NFTUnstaked(address indexed user, uint256 indexed poolId, uint256 tokenId, uint256 time);
 
-
-    // ---- Modifiers ----
     modifier onlyOwner() {
         require(msg.sender == owner, "Not owner");
         _;
@@ -46,9 +40,8 @@ contract StakingProtocol is Context, IStakingProtocol {
         _;
     }
 
-    // ---- Initializer ----
+    // Initializer
     bool private _initialized;
-
     function initialize(address _owner, uint256 _cliff) external {
         require(!_initialized, "Already initialized");
         owner = _owner;
@@ -56,12 +49,10 @@ contract StakingProtocol is Context, IStakingProtocol {
         poolCount = 0;
         paused = false;
         _initialized = true;
-
         emit OwnershipTransferred(address(0), _owner);
         emit Initialized(_owner, block.timestamp);
     }
 
-    // ---- Admin Controls ----
     function setCliff(uint256 _cliff) external onlyOwner {
         cliff = _cliff;
     }
@@ -86,24 +77,19 @@ contract StakingProtocol is Context, IStakingProtocol {
         owner = newOwner;
     }
 
-
     function setRewardStrategy(uint256 poolId, address strategy) external onlyOwner {
-    require(poolId > 0 && poolId <= poolCount, "Invalid pool");
-    rewardStrategy[poolId] = strategy;
-}
+        require(poolId > 0 && poolId <= poolCount, "Invalid pool");
+        rewardStrategy[poolId] = strategy;
+    }
 
-    // ---- Pool Management ----
     function createPool(address stakingToken, address rewardToken, uint256 yieldPerSecond) external onlyOwner {
         require(stakingToken != address(0) && rewardToken != address(0), "Zero address");
-
         poolCount += 1;
         pool[poolCount] = PoolInfo(stakingToken, rewardToken, yieldPerSecond, 0);
         poolStatus[poolCount] = true;
-
         emit PoolCreated(poolCount, stakingToken, rewardToken, yieldPerSecond);
     }
 
-    // ---- Staking Logic ----
     function stakeToken(uint256 poolId, uint256 amount) external whenPoolActive(poolId) {
         PoolInfo storage _pool = pool[poolId];
         StakingInfo storage _info = stake[_msgSender()][poolId];
@@ -121,19 +107,15 @@ contract StakingProtocol is Context, IStakingProtocol {
         _info.stakeAmount += amount;
         _info.stakeTime = block.timestamp;
         _pool.totalStaked += amount;
-
         require(IERC20(_pool.stakingToken).transferFrom(_msgSender(), address(this), amount), "Stake transfer failed");
-
         emit Staked(_msgSender(), amount, poolId, block.timestamp);
     }
 
     function claimToken(uint256 poolId, bool unStaking) external whenPoolActive(poolId) {
         StakingInfo storage _info = stake[_msgSender()][poolId];
         PoolInfo storage _pool = pool[poolId];
-
         require(_info.stakeAmount > 0, "Nothing staked");
         require(block.timestamp >= _info.stakeTime + cliff, "Cliff not passed");
-
         uint256 reward = fetchUnclaimedReward(poolId);
         require(reward > 0, "No reward");
 
@@ -141,13 +123,11 @@ contract StakingProtocol is Context, IStakingProtocol {
             uint256 amount = _info.stakeAmount;
             _pool.totalStaked -= amount;
             _info.stakeAmount = 0;
-
             require(IERC20(_pool.stakingToken).transfer(_msgSender(), amount), "Unstake transfer failed");
         }
 
         _info.stakeTime = block.timestamp;
         require(IERC20(_pool.rewardToken).transfer(_msgSender(), reward), "Reward transfer failed");
-
         emit Claimed(_msgSender(), reward, poolId, block.timestamp, unStaking);
     }
 
@@ -155,22 +135,19 @@ contract StakingProtocol is Context, IStakingProtocol {
         StakingInfo storage _info = stake[_msgSender()][poolId];
         PoolInfo storage _pool = pool[poolId];
         uint256 amount = _info.stakeAmount;
-
         require(amount > 0, "Nothing to withdraw");
-
         _info.stakeAmount = 0;
         _pool.totalStaked -= amount;
-
         require(IERC20(_pool.stakingToken).transfer(_msgSender(), amount), "Emergency withdraw failed");
-
         emit EmergencyWithdraw(_msgSender(), poolId, amount, block.timestamp);
     }
 
     function fetchUnclaimedReward(uint256 poolId) public view returns (uint256) {
-      if (rewardStrategy[poolId] != address(0)) {
-          return IRewardStrategy(rewardStrategy[poolId]).calculateReward(_msgSender(), poolId, _info.stakeAmount, _info.stakeTime);
-      }
-
+        StakingInfo storage _info = stake[_msgSender()][poolId];
+        if (rewardStrategy[poolId] != address(0)) {
+            return IRewardStrategy(rewardStrategy[poolId]).calculateReward(_msgSender(), poolId, _info.stakeAmount, _info.stakeTime);
+        }
+        return 0;
     }
 
     function stakeInfo(address user, uint256 poolId) external view returns (StakingInfo memory) {
@@ -186,49 +163,41 @@ contract StakingProtocol is Context, IStakingProtocol {
     }
 
     function stakeNFT(uint256 poolId, address nftAddress, uint256 tokenId) external whenPoolActive(poolId) {
-    require(IERC721(nftAddress).ownerOf(tokenId) == _msgSender(), "Not NFT owner");
-    require(nftAddress == nftContractPerPool[poolId], "NFT not allowed in this pool");
+        require(IERC721(nftAddress).ownerOf(tokenId) == _msgSender(), "Not NFT owner");
+        require(nftAddress == nftContractPerPool[poolId], "NFT not allowed in this pool");
 
+        NFTStakeInfo storage stakeRecord = nftStake[_msgSender()][poolId][tokenId];
+        require(stakeRecord.stakeTime == 0, "Already staked");
 
-    NFTStakeInfo storage stakeRecord = nftStake[_msgSender()][poolId][tokenId];
-    require(stakeRecord.stakeTime == 0, "Already staked");
-
-    IERC721(nftAddress).transferFrom(_msgSender(), address(this), tokenId);
-
-    nftStake[_msgSender()][poolId][tokenId] = NFTStakeInfo(tokenId, block.timestamp);
-
-    emit NFTStaked(_msgSender(), poolId, tokenId, block.timestamp);
-}
-
-
-function unstakeNFT(uint256 poolId, address nftAddress, uint256 tokenId) external whenPoolActive(poolId) {
-    NFTStakeInfo storage info = nftStake[_msgSender()][poolId][tokenId];
-    require(info.stakeTime != 0, "NFT not staked");
-
-    require(block.timestamp >= info.stakeTime + cliff, "Cliff not passed");
-
-    uint256 reward = fetchUnclaimedNFTReward(poolId, tokenId);
-    delete nftStake[_msgSender()][poolId][tokenId];
-
-    require(IERC721(nftAddress).transferFrom(address(this), _msgSender(), tokenId), "NFT return failed");
-
-    if (reward > 0) {
-        require(IERC20(pool[poolId].rewardToken).transfer(_msgSender(), reward), "Reward transfer failed");
+        IERC721(nftAddress).transferFrom(_msgSender(), address(this), tokenId);
+        nftStake[_msgSender()][poolId][tokenId] = NFTStakeInfo(tokenId, block.timestamp);
+        emit NFTStaked(_msgSender(), poolId, tokenId, block.timestamp);
     }
 
-    emit NFTUnstaked(_msgSender(), poolId, tokenId, block.timestamp);
-}
+    function unstakeNFT(uint256 poolId, address nftAddress, uint256 tokenId) external whenPoolActive(poolId) {
+        NFTStakeInfo storage info = nftStake[_msgSender()][poolId][tokenId];
+        require(info.stakeTime != 0, "NFT not staked");
+        require(block.timestamp >= info.stakeTime + cliff, "Cliff not passed");
+
+        uint256 reward = fetchUnclaimedNFTReward(poolId, tokenId);
+        delete nftStake[_msgSender()][poolId][tokenId];
+
+        require(IERC721(nftAddress).transferFrom(address(this), _msgSender(), tokenId), "NFT return failed");
+
+        if (reward > 0) {
+            require(IERC20(pool[poolId].rewardToken).transfer(_msgSender(), reward), "Reward transfer failed");
+        }
+
+        emit NFTUnstaked(_msgSender(), poolId, tokenId, block.timestamp);
+    }
 
     function fetchUnclaimedNFTReward(uint256 poolId, uint256 tokenId) public view returns (uint256) {
-    NFTStakeInfo storage info = nftStake[_msgSender()][poolId][tokenId];
-    PoolInfo storage _pool = pool[poolId];
-
-    if (info.stakeTime == 0 || block.timestamp < info.stakeTime + cliff) return 0;
-
-    uint256 duration = block.timestamp - info.stakeTime - cliff;
-    uint256 reward = duration * _pool.yieldPerSecond; // 1 NFT = fixed rate
-
-    return reward;
+        NFTStakeInfo storage info = nftStake[_msgSender()][poolId][tokenId];
+        PoolInfo storage _pool = pool[poolId];
+        if (info.stakeTime == 0 || block.timestamp < info.stakeTime + cliff) return 0;
+        uint256 duration = block.timestamp - info.stakeTime - cliff;
+        uint256 reward = duration * _pool.yieldPerSecond;
+        return reward;
+    }
 }
-
-}
+// Interface for reward strategy
