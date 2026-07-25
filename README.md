@@ -52,56 +52,13 @@ Staking Protocol.pdf
 4. **Deploy contracts:**
    Edit deployment scripts in the `scripts/` directory and run with Hardhat.
 
-## Deployed Contracts
+## Deployment Status
 
-This section documents the official deployments of the Staking Protocol across multiple blockchain networks.
-
-### Mainnet & Testnet Deployments
-
-| Network | Contract Address | Etherscan Link | Deployment Date |
-|---------|------------------|----------------|-----------------|
-| **Ethereum Mainnet** | `[MAINNET_ADDRESS]` | [Verify on Etherscan](#) | TBD |
-| **Sepolia Testnet** | `[TESTNET_ADDRESS]` | [Verify on Etherscan](#) | TBD |
-| **Polygon Mumbai** | `[POLYGON_ADDRESS]` | [Verify on PolygonScan](#) | TBD |
-
-**Note:** Address placeholders will be updated upon deployment. Each contract has been audited and verified for security.
+This protocol is not currently deployed to a live network. Redeployment is planned, and verified contract addresses with block explorer links will be added here once deployment is complete.
 
 ### Contract Verification
 
-All deployed contracts are verified on their respective block explorers for full transparency and security assurance.
-
-#### Verifying on Etherscan using Hardhat
-
-To automatically verify your contracts during or after deployment:
-
-1. **Set up your Etherscan API key:**
-   ```bash
-   export ETHERSCAN_API_KEY=your_api_key_here
-   ```
-
-2. **Verify during deployment:**
-   ```bash
-   npx hardhat verify --network mainnet <CONTRACT_ADDRESS> <CONSTRUCTOR_ARGS>
-   ```
-
-3. **Example verification command:**
-   ```bash
-   npx hardhat verify --network sepolia 0x1234...abcd "arg1" "arg2"
-   ```
-
-4. **Configuration:** Ensure your `hardhat.config.js` includes the etherscan configuration:
-   ```javascript
-   etherscan: {
-     apiKey: {
-       mainnet: process.env.ETHERSCAN_API_KEY,
-       sepolia: process.env.ETHERSCAN_API_KEY,
-       polygon: process.env.POLYGONSCAN_API_KEY,
-       polygonMumbai: process.env.POLYGONSCAN_API_KEY,
-     }
-   }
-   ```
-
-🚀 **Ready to deploy?** See [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) for comprehensive step-by-step instructions and best practices.
+Once deployed, contracts can be verified on their respective block explorers (Etherscan, PolygonScan) using the Hardhat verify plugin, after configuring the appropriate API key as an environment variable and adding the etherscan configuration block to hardhat.config.js.
 
 ## Components
 
