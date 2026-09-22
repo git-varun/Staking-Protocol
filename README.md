@@ -1,84 +1,41 @@
-# Staking-Protocol
+# Staking Protocol: Invariant and Fuzz Suite
 
-A flexible and secure staking smart contract system supporting both ERC20 and ERC721 tokens, with customizable reward strategies and safe transfer mechanisms.
+Target: the `StakingProtocol` that implements `IStakingProtocol` (not the V1 draft), plus the three reward strategies and the factory.
+Goal: a stateful invariant suite, fuzz tests, and a gas report. Every failure becomes a `FINDINGS.md` entry. The suite is then mutation-checked.
 
-## Features
+## Rules
+1. **Contracts stay untouched** until a failing sequence is traced by hand and logged in `FINDINGS.md`.
+2. **Predict first.** Above each invariant write "This breaks if ____" before the first run.
+3. **Trace failures by hand.** Forge prints a shrunk call sequence. Write state before/after each call before you look for the fix.
+4. **No vacuous passes.** Read `invariant_callSummary` output. If an action never ran, or always reverted, the green result means nothing.
+5. **Do not skim the setUp.** The fuzzer only explores what setUp and the handler allow.
 
-- **Supports ERC20 and ERC721 staking:** Users can stake fungible or non-fungible tokens.
-- **Customizable reward strategies:** Easily implement and plug in new reward logic.
-- **Safe transfer:** Assets are transferred securely during staking and withdrawal.
-- **Upgradeable architecture:** Proxy design allows for contract upgrades.
-- **Comprehensive testing:** Includes JavaScript/Hardhat-based test suite.
-- **Well-documented:** Protocol specification PDF included.
+## Scope
+In: ERC-20 path (`stakeToken`, `claimRewards`, `emergencyWithdraw`), the 3 strategies through the factory, admin functions, one upgrade-safety test.
+Out for now: NFT path, fee-on-transfer tokens, frontends.
 
-## Structure
+## Properties
+| ID | Property | Kind |
+|----|----------|------|
+| INV-1 | `totalStaked` equals the sum of all actor stakes, per pool | accounting |
+| INV-2 | staking-token balance held >= `totalStaked`, per pool | solvency |
+| INV-3 | tokens actually received minus actually returned == `totalStaked` | accounting (ghost) |
+| INV-4 | rewards paid per actor <= independent model max (Linear only) | economic |
+| INV-5 | `owner` changes only via an owner-authorized path | access |
+| INV-6 | nothing feeding reward-rate math is changeable by a non-owner | access |
+| INV-7 | no reward leaves before the cliff has elapsed | behavioral |
+| INV-8 | any actor with a stake can always exit | liveness |
+| INV-9 | no handler call reverts with a Panic | robustness |
 
-```
-contracts/
-  RewardStrategyFactory.sol
-  core/
-  interfaces/
-  proxy/
-  strategies/
-  test/
-test/
-  StakingProtocol.test.js
-scripts/
-hardhat.config.js
-package.json
-README.md
-Staking Protocol.pdf
-```
+## Steps
+0. **Baseline.** Split the flattened file into your repo layout (keep V1 out of `contracts/`; it will not compile alongside the interface). `forge build`. Write one happy-path test to prove setUp.
+1. INV-1 to INV-3 plus `stake`, `claim`, `exitProbe`, `warp` in the handler. Run, read the call summary, trace failures.
+2. INV-5, INV-6 plus `adminAction`, `outsiderCallsEverything`.
+3. INV-4, INV-7, INV-8, INV-9.
+4. Fuzz tests (not invariants) on strategy math with bounded inputs.
+5. **Upgrade safety.** Run `forge inspect <Contract> storage-layout` for the V1 and current versions. Predict what a proxy pointing at the current version does to state written under V1. Prove it with a test.
+6. Gas: `forge test --gas-report`. Save the baseline, do a gas pass, save the after numbers.
+7. Mutation check (after your fixes): reintroduce each fixed bug one at a time, confirm at least one invariant fails.
 
-## Getting Started
-
-1. **Install dependencies:**
-   ```bash
-   yarn install
-   # or
-   npm install
-   ```
-
-2. **Compile contracts:**
-   ```bash
-   npx hardhat compile
-   ```
-
-3. **Run tests:**
-   ```bash
-   npx hardhat test
-   ```
-
-4. **Deploy contracts:**
-   Edit deployment scripts in the `scripts/` directory and run with Hardhat.
-
-## Deployment Status
-
-This protocol is not currently deployed to a live network. Redeployment is planned, and verified contract addresses with block explorer links will be added here once deployment is complete.
-
-### Contract Verification
-
-Once deployed, contracts can be verified on their respective block explorers (Etherscan, PolygonScan) using the Hardhat verify plugin, after configuring the appropriate API key as an environment variable and adding the etherscan configuration block to hardhat.config.js.
-
-## Components
-
-- **RewardStrategyFactory.sol:** Factory for creating/managing reward strategies.
-- **core/:** Core protocol logic and state management.
-- **interfaces/:** Interface contracts for staking and token standards.
-- **proxy/:** Upgradeability/proxy contracts.
-- **strategies/:** Implementations of various reward strategies.
-- **test/:** Test contracts and JavaScript tests.
-- **scripts/:** Deployment and utility scripts.
-
-## Documentation
-
-- See `Staking Protocol.pdf` for the protocol specification and detailed explanation.
-- The `report/` directory may contain audit or coverage reports.
-
-## License
-
-See [LICENSE](./LICENSE).
-
----
-
-**Note:** For a full directory listing, visit the [repository contents page](https://github.com/git-varun/Staking-Protocol/contents/).
+## FINDINGS.md format
+ID, invariant that caught it, shrunk sequence, root cause, severity, fix.
