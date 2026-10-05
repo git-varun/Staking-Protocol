@@ -29,3 +29,5 @@ ignition/deployments/chain-31337
 # Editors
 .idea/
 .vscode/
+
+docs/
