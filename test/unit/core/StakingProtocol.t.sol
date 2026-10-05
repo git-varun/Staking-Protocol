@@ -2,21 +2,20 @@
 pragma solidity ^0.8.20;
 
 import {StakingProtocol} from "../../../src/core/StakingProtocol.sol";
-import {IStakingProtocol} from "../../../src/interfaces/IStakingProtocol.sol";
 import {StakingConstants} from "../../../src/libraries/StakingConstants.sol";
-import {MockERC20} from "../../mocks/MockERC20.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 
 contract StakingProtocolTest is Test {
     StakingProtocol public stakeProtocol;
 
-    MockERC20 public stakingToken;
-    MockERC20 public rewardToken;
+    ERC20Mock public stakingToken;
+    ERC20Mock public rewardToken;
 
-    address private OWNER;
-    address private ATTACKER;
-    address private USER;
+    address private owner;
+    address private attacker;
+    address private user;
 
     uint256 private constant cliff = 2 days;
     uint256 private constant YPS = 100 wei;
@@ -24,21 +23,21 @@ contract StakingProtocolTest is Test {
     event PoolCreated(uint256 indexed poolId, address stakingToken, address rewardToken, uint256 yieldPerSecond);
 
     function setUp() public {
-        OWNER = makeAddr("OWNER");
-        ATTACKER = makeAddr("ATTACKER");
-        USER = makeAddr("USER");
+        owner = makeAddr("owner");
+        attacker = makeAddr("attacker");
+        user = makeAddr("user");
 
         stakeProtocol = new StakingProtocol();
-        stakeProtocol.initialize(OWNER, cliff);
+        stakeProtocol.initialize(owner, cliff);
 
-        stakingToken = new MockERC20("stakeToken", "ST");
-        rewardToken = new MockERC20("rewardToken", "RT");
+        stakingToken = new ERC20Mock();
+        rewardToken = new ERC20Mock();
 
-        stakingToken.mint(USER, 10 ether);
+        stakingToken.mint(user, 10 ether);
     }
 
     function _createDefaultPool() private {
-        vm.prank(OWNER);
+        vm.prank(owner);
         stakeProtocol.createPool(address(stakingToken), address(rewardToken), YPS);
     }
 
@@ -75,13 +74,13 @@ contract StakingProtocolTest is Test {
     }
 
     function test_CreatePool_RevertWhenZeroStakingToken() public {
-        vm.prank(OWNER);
+        vm.prank(owner);
         vm.expectRevert(bytes(StakingConstants.ERROR_ZERO_ADDRESS));
         stakeProtocol.createPool(address(0), address(rewardToken), YPS);
     }
 
     function test_CreatePool_RevertWhenZeroRewardToken() public {
-        vm.prank(OWNER);
+        vm.prank(owner);
         vm.expectRevert(bytes(StakingConstants.ERROR_ZERO_ADDRESS));
         stakeProtocol.createPool(address(stakingToken), address(0), YPS);
     }
@@ -91,7 +90,7 @@ contract StakingProtocolTest is Test {
         uint256 poolId = stakeProtocol.poolCount();
         uint256 amount = 10 ether;
 
-        vm.startPrank(USER);
+        vm.startPrank(user);
         stakingToken.approve(address(stakeProtocol), amount);
         stakeProtocol.stakeToken(poolId, amount);
         vm.stopPrank();
@@ -100,8 +99,8 @@ contract StakingProtocolTest is Test {
     function test_stake() public {
         uint256 stakedTime = block.timestamp;
         _defaultStake();
-        (,,,uint256 totalStaked) = stakeProtocol.pools(1);
-        (uint96 stakeAmount, uint64 stakeTime, bool autoCompound) = stakeProtocol.stakes(USER, 1);
+        (,,, uint256 totalStaked) = stakeProtocol.pools(1);
+        (uint256 stakeAmount, uint64 stakeTime, bool autoCompound) = stakeProtocol.stakes(user, 1);
 
         console.log(totalStaked, stakeAmount, stakedTime);
 

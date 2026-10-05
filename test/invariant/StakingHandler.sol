@@ -3,7 +3,7 @@ pragma solidity ^0.8.12;
 
 import {Test} from "forge-std/Test.sol";
 import {StakingProtocol} from "../../src/core/StakingProtocol.sol";
-import {MockERC20} from "../mocks/MockERC20.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 contract StakingHandler is Test {
     StakingProtocol public staking;
@@ -20,8 +20,8 @@ contract StakingHandler is Test {
 
     // ---- ghosts ----
     address public expectedOwner;
-    mapping(uint256 => uint256) public ghost_transferredIn;   // per pool, staking-token in
-    mapping(uint256 => uint256) public ghost_transferredOut;  // per pool, staking-token out
+    mapping(uint256 => uint256) public ghost_transferredIn; // per pool, staking-token in
+    mapping(uint256 => uint256) public ghost_transferredOut; // per pool, staking-token out
     mapping(address => mapping(uint256 => uint256)) public ghost_rewardsPaid; // actor -> poolId -> reward total
 
     modifier useActor(uint256 seed) {
@@ -47,15 +47,15 @@ contract StakingHandler is Test {
         uint256 poolId = _pool(poolSeed);
         amount = bound(amount, 1, 1_000_000e18);
 
-        (address stakingToken, , , ) = staking.pools(poolId);
-        MockERC20(stakingToken).mint(currentActor, amount);
-        MockERC20(stakingToken).approve(address(staking), amount);
+        (address stakingToken,,,) = staking.pools(poolId);
+        ERC20Mock(stakingToken).mint(currentActor, amount);
+        ERC20Mock(stakingToken).approve(address(staking), amount);
 
         // stakeToken() no longer auto-pays a pending reward on restake — it now requires
         // stakeAmount == 0 (fresh position) or no pending reward before accepting more stake.
         // A restake attempt while reward is pending should REVERT; that's the fix working,
         // not a bug to route around.
-        (uint96 stakedBefore, , ) = staking.stakes(currentActor, poolId);
+        (uint256 stakedBefore,,) = staking.stakes(currentActor, poolId);
         uint256 pendingBefore = stakedBefore > 0 ? staking.fetchUnclaimedReward(poolId) : 0;
 
         try staking.stakeToken(poolId, amount) {
@@ -76,28 +76,24 @@ contract StakingHandler is Test {
         calls["claim"]++;
         uint256 poolId = _pool(poolSeed);
 
-        (uint96 stakedBefore, uint64 stakeTimeBefore, ) = staking.stakes(currentActor, poolId);
+        (uint256 stakedBefore, uint64 stakeTimeBefore,) = staking.stakes(currentActor, poolId);
         if (stakedBefore == 0) return; // nothing to claim — don't waste a fuzz run on a guaranteed revert
 
-        (address stakingToken, address rewardToken, , ) = staking.pools(poolId);
-        uint256 rewardBalBefore = MockERC20(rewardToken).balanceOf(currentActor);
-        uint256 stakeBalBefore = MockERC20(stakingToken).balanceOf(currentActor);
+        (address stakingToken, address rewardToken,,) = staking.pools(poolId);
+        uint256 rewardBalBefore = ERC20Mock(rewardToken).balanceOf(currentActor);
+        uint256 stakeBalBefore = ERC20Mock(stakingToken).balanceOf(currentActor);
 
         try staking.claimRewards(poolId, unstake) {
-            uint256 rewardPaid = MockERC20(rewardToken).balanceOf(currentActor) - rewardBalBefore;
+            uint256 rewardPaid = ERC20Mock(rewardToken).balanceOf(currentActor) - rewardBalBefore;
             ghost_rewardsPaid[currentActor][poolId] += rewardPaid;
 
             // INV-7 (cliff) as a per-call postcondition, checked right where the action happens —
             // this is a property of THIS successful call, not persistent state, so it belongs here
             // and not in a separate invariant_ function. See note in StakingInvariants.t.sol.
-            assertGe(
-                block.timestamp,
-                stakeTimeBefore + staking.cliff(),
-                "INV-7: reward paid before cliff elapsed"
-            );
+            assertGe(block.timestamp, stakeTimeBefore + staking.cliff(), "INV-7: reward paid before cliff elapsed");
 
             if (unstake) {
-                uint256 returned = MockERC20(stakingToken).balanceOf(currentActor) - stakeBalBefore;
+                uint256 returned = ERC20Mock(stakingToken).balanceOf(currentActor) - stakeBalBefore;
                 ghost_transferredOut[poolId] += returned;
             }
         } catch (bytes memory err) {
@@ -110,14 +106,14 @@ contract StakingHandler is Test {
         calls["exitProbe"]++;
         uint256 poolId = _pool(poolSeed);
 
-        (uint96 amt, , ) = staking.stakes(currentActor, poolId);
+        (uint256 amt,,) = staking.stakes(currentActor, poolId);
         if (amt == 0) return;
 
-        (address stakingToken, , , ) = staking.pools(poolId);
-        uint256 balBefore = MockERC20(stakingToken).balanceOf(currentActor);
+        (address stakingToken,,,) = staking.pools(poolId);
+        uint256 balBefore = ERC20Mock(stakingToken).balanceOf(currentActor);
 
         try staking.emergencyWithdraw(poolId) {
-            uint256 returned = MockERC20(stakingToken).balanceOf(currentActor) - balBefore;
+            uint256 returned = ERC20Mock(stakingToken).balanceOf(currentActor) - balBefore;
             ghost_transferredOut[poolId] += returned;
         } catch (bytes memory err) {
             _checkPanic(err);
@@ -174,8 +170,12 @@ contract StakingHandler is Test {
 
         if (currentActor != staking.owner()) {
             // owner-gated on the staking contract itself — must always revert
-            try staking.setCliff(arg) { unauthorizedRateChange = true; } catch {}
-            try staking.setRewardStrategy(poolId, address(uint160(arg))) { unauthorizedRateChange = true; } catch {}
+            try staking.setCliff(arg) {
+                unauthorizedRateChange = true;
+            } catch {}
+            try staking.setRewardStrategy(poolId, address(uint160(arg))) {
+                unauthorizedRateChange = true;
+            } catch {}
             try staking.setProtocolPaused(arg % 2 == 0) {} catch {}
             try staking.setPoolPaused(poolId, arg % 2 == 0) {} catch {}
             try staking.setPoolStatus(poolId, arg % 2 == 0) {} catch {}
@@ -186,9 +186,8 @@ contract StakingHandler is Test {
             // Generically probe every external mutating function it exposes:
             address strategy = staking.rewardStrategies(poolId);
             if (strategy != address(0)) {
-                (bool ok1, ) = strategy.call(
-                    abi.encodeWithSignature("updateNFTBoost(address,uint256)", currentActor, arg)
-                );
+                (bool ok1,) =
+                    strategy.call(abi.encodeWithSignature("updateNftBoost(address,uint256)", currentActor, arg));
                 if (ok1) unauthorizedRateChange = true;
                 // add more abi.encodeWithSignature(...) probes here for any other mutating
                 // function a strategy contract exposes, so new strategies stay covered

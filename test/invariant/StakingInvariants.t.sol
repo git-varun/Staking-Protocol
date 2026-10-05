@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 import {StakingProtocol} from "../../src/core/StakingProtocol.sol";
 import {RewardStrategyFactory} from "../../src/RewardStrategyFactory.sol";
-import {MockERC20} from "../mocks/MockERC20.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {StakingHandler} from "./StakingHandler.sol";
 
 contract StakingInvariants is Test {
@@ -16,11 +16,11 @@ contract StakingInvariants is Test {
     address public admin = makeAddr("admin");
     address[] public actors;
 
-    MockERC20 public stakingToken;
-    MockERC20 public rewardToken;
+    ERC20Mock public stakingToken;
+    ERC20Mock public rewardToken;
 
-    uint256 constant public CLIFF = 7 days;
-    uint256 constant public YIELD_PER_SECOND = 1e15; // used for pool metadata; actual math comes from the strategy
+    uint256 public constant CLIFF = 7 days;
+    uint256 public constant YIELD_PER_SECOND = 1e15; // used for pool metadata; actual math comes from the strategy
 
     function setUp() public {
         vm.startPrank(admin);
@@ -29,8 +29,8 @@ contract StakingInvariants is Test {
         staking = new StakingProtocol();
         staking.initialize(admin, CLIFF);
 
-        stakingToken = new MockERC20("stakingToken", "ST");
-        rewardToken = new MockERC20("rewardToken", "RD");
+        stakingToken = new ERC20Mock();
+        rewardToken = new ERC20Mock();
 
         // --- pools: 1 = Linear strategy, 2 = FixedPerBlock strategy ---
         staking.createPool(address(stakingToken), address(rewardToken), YIELD_PER_SECOND);
@@ -86,10 +86,10 @@ contract StakingInvariants is Test {
         for (uint256 poolId = 1; poolId <= staking.poolCount(); poolId++) {
             uint256 sumStaked;
             for (uint256 i = 0; i < n; i++) {
-                (uint96 amt, , ) = staking.stakes(handler.actorAt(i), poolId);
+                (uint256 amt,,) = staking.stakes(handler.actorAt(i), poolId);
                 sumStaked += amt;
             }
-            (, , , uint256 totalStaked) = staking.pools(poolId);
+            (,,, uint256 totalStaked) = staking.pools(poolId);
             assertEq(totalStaked, sumStaked, "INV-1: totalStaked != sum of individual stakes");
         }
     }
@@ -103,8 +103,8 @@ contract StakingInvariants is Test {
 
     function invariant_INV2_solvency() public view {
         for (uint256 poolId = 1; poolId <= staking.poolCount(); poolId++) {
-            (address token, , , uint256 totalStaked) = staking.pools(poolId);
-            uint256 held = MockERC20(token).balanceOf(address(staking));
+            (address token,,, uint256 totalStaked) = staking.pools(poolId);
+            uint256 held = ERC20Mock(token).balanceOf(address(staking));
             assertGe(held, totalStaked, "INV-2: protocol holds less staking-token than it owes");
         }
     }
@@ -117,7 +117,7 @@ contract StakingInvariants is Test {
 
     function invariant_INV3_principalInOut() public view {
         for (uint256 poolId = 1; poolId <= staking.poolCount(); poolId++) {
-            (, , , uint256 totalStaked) = staking.pools(poolId);
+            (,,, uint256 totalStaked) = staking.pools(poolId);
             uint256 netFlow = handler.ghost_transferredIn(poolId) - handler.ghost_transferredOut(poolId);
             assertEq(totalStaked, netFlow, "INV-3: totalStaked diverges from observed transfer flow");
         }

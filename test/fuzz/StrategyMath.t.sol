@@ -12,16 +12,13 @@ import {LinearRewardStrategy} from "../../src/strategies/LinearRewardStrategy.so
 /// (which is for properties that must hold across a SEQUENCE of state-changing calls).
 contract StrategyMathTest is Test {
     LinearRewardStrategy public strategy;
-    uint256 constant public YIELD_PER_SECOND = 1e15;
+    uint256 public constant YIELD_PER_SECOND = 1e15;
 
     function setUp() public {
         strategy = new LinearRewardStrategy(YIELD_PER_SECOND);
     }
 
-    function testFuzz_linearReward_matchesIndependentModel(
-        uint256 stakedAmount,
-        uint256 elapsed
-    ) public view {
+    function testFuzz_linearReward_matchesIndependentModel(uint256 stakedAmount, uint256 elapsed) public view {
         stakedAmount = bound(stakedAmount, 0, 10_000_000e18);
         elapsed = bound(elapsed, 0, 4 * 365 days);
 
@@ -45,8 +42,8 @@ contract StrategyMathTest is Test {
         uint256 staked = 1 ether;
         vm.warp(400 days);
         uint256 reward = strategy.calculateReward(address(0), 0, staked, block.timestamp - 365 days);
-       console.log(reward);
+        console.log(reward);
         uint256 expected = (staked * 365 days * YIELD_PER_SECOND) / 31536000;
-        assertEq(reward, expected , "trace this by hand, don't trust the assert");
+        assertEq(reward, expected, "trace this by hand, don't trust the assert");
     }
 }
