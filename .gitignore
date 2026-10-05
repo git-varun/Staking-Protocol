@@ -31,3 +31,4 @@ ignition/deployments/chain-31337
 .vscode/
 
 docs/
+lib/

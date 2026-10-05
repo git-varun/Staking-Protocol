@@ -33,10 +33,10 @@ docs/                             design spec
 
 ## Build and test
 
-Requires [Foundry](https://book.getfoundry.sh/). OpenZeppelin is a git submodule.
+Requires [Foundry](https://book.getfoundry.sh/). Dependencies are not tracked in git. Install them into `lib/` first.
 
 ```sh
-git submodule update --init --recursive
+forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts --no-git
 forge build
 forge test                 # unit + fuzz + invariant
 forge test --gas-report
