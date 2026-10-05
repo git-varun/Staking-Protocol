@@ -1,41 +1,69 @@
-# Staking Protocol: Invariant and Fuzz Suite
+# Staking Protocol
 
-Target: the `StakingProtocol` that implements `IStakingProtocol` (not the V1 draft), plus the three reward strategies and the factory.
-Goal: a stateful invariant suite, fuzz tests, and a gas report. Every failure becomes a `FINDINGS.md` entry. The suite is then mutation-checked.
+An upgradeable staking contract in Solidity (Foundry). Users stake ERC-20 tokens or ERC-721 NFTs into owner-created pools and earn rewards. Each pool can use a pluggable reward strategy. The repo includes a unit, fuzz and stateful invariant test suite, and the bugs it found are in [`FINDINGS.md`](FINDINGS.md).
 
-## Rules
-1. **Contracts stay untouched** until a failing sequence is traced by hand and logged in `FINDINGS.md`.
-2. **Predict first.** Above each invariant write "This breaks if ____" before the first run.
-3. **Trace failures by hand.** Forge prints a shrunk call sequence. Write state before/after each call before you look for the fix.
-4. **No vacuous passes.** Read `invariant_callSummary` output. If an action never ran, or always reverted, the green result means nothing.
-5. **Do not skim the setUp.** The fuzzer only explores what setUp and the handler allow.
+## What it does
 
-## Scope
-In: ERC-20 path (`stakeToken`, `claimRewards`, `emergencyWithdraw`), the 3 strategies through the factory, admin functions, one upgrade-safety test.
-Out for now: NFT path, fee-on-transfer tokens, frontends.
+- **Pools.** The owner creates pools, each with a staking token, a reward token and a yield per second. Pools can be paused or deactivated, and the whole protocol can be paused.
+- **ERC-20 staking.** `stakeToken` deposits tokens. `claimRewards(poolId, unStake)` pays out rewards and optionally withdraws the stake. Rewards are only claimable after a global **cliff** period. `emergencyWithdraw` returns the stake with no rewards.
+- **NFT staking.** `stakeNft` and `unstakeNft` lock ERC-721 tokens in pools that are mapped to an NFT contract. They earn time-based rewards after the cliff.
+- **Reward strategies.** A pool can point to an `IRewardStrategy` that computes rewards. The `RewardStrategyFactory` deploys three kinds:
+  | Strategy | Reward formula |
+  |----------|----------------|
+  | `LinearRewardStrategy` | `staked * elapsed * yieldPerSecond / 1 year` |
+  | `FixedPerBlockStrategy` | `blocksElapsed * fixedReward` |
+  | `NftBoostedStrategy` | linear reward scaled by `1 + nftCount * boostMultiplier` |
+- **Upgradeability.** `StakingProxy` is an EIP-1967 proxy. `ProxyAdmin` manages upgrades. `StakingProtocol` has a storage gap and an `initialize` function.
 
-## Properties
-| ID | Property | Kind |
-|----|----------|------|
-| INV-1 | `totalStaked` equals the sum of all actor stakes, per pool | accounting |
-| INV-2 | staking-token balance held >= `totalStaked`, per pool | solvency |
-| INV-3 | tokens actually received minus actually returned == `totalStaked` | accounting (ghost) |
-| INV-4 | rewards paid per actor <= independent model max (Linear only) | economic |
-| INV-5 | `owner` changes only via an owner-authorized path | access |
-| INV-6 | nothing feeding reward-rate math is changeable by a non-owner | access |
-| INV-7 | no reward leaves before the cliff has elapsed | behavioral |
-| INV-8 | any actor with a stake can always exit | liveness |
-| INV-9 | no handler call reverts with a Panic | robustness |
+## Layout
 
-## Steps
-0. **Baseline.** Split the flattened file into your repo layout (keep V1 out of `contracts/`; it will not compile alongside the interface). `forge build`. Write one happy-path test to prove setUp.
-1. INV-1 to INV-3 plus `stake`, `claim`, `exitProbe`, `warp` in the handler. Run, read the call summary, trace failures.
-2. INV-5, INV-6 plus `adminAction`, `outsiderCallsEverything`.
-3. INV-4, INV-7, INV-8, INV-9.
-4. Fuzz tests (not invariants) on strategy math with bounded inputs.
-5. **Upgrade safety.** Run `forge inspect <Contract> storage-layout` for the V1 and current versions. Predict what a proxy pointing at the current version does to state written under V1. Prove it with a test.
-6. Gas: `forge test --gas-report`. Save the baseline, do a gas pass, save the after numbers.
-7. Mutation check (after your fixes): reintroduce each fixed bug one at a time, confirm at least one invariant fails.
+```
+src/
+  core/StakingProtocol.sol        main staking logic
+  interfaces/                     IStakingProtocol, IRewardStrategy
+  libraries/StakingConstants.sol  revert messages
+  proxy/                          StakingProxy (EIP-1967), ProxyAdmin
+  strategies/                     Linear, FixedPerBlock, NftBoosted
+  RewardStrategyFactory.sol       deploys strategies per pool
+test/
+  unit/ fuzz/ invariant/          test suites (see below)
+FINDINGS.md                       bugs found by fuzzing, plus mutation checks
+docs/                             design spec
+```
 
-## FINDINGS.md format
-ID, invariant that caught it, shrunk sequence, root cause, severity, fix.
+## Build and test
+
+Requires [Foundry](https://book.getfoundry.sh/). OpenZeppelin is a git submodule.
+
+```sh
+git submodule update --init --recursive
+forge build
+forge test                 # unit + fuzz + invariant
+forge test --gas-report
+```
+
+Fuzz runs, invariant runs and depth are set in `foundry.toml`.
+
+## Test suite
+
+- **Unit** (`test/unit`): the happy paths and the revert cases.
+- **Fuzz** (`test/fuzz`): strategy math with bounded inputs.
+- **Invariant** (`test/invariant`): a handler drives stake, claim, exit, time warps, admin actions and outsider calls. The suite checks these properties:
+
+| ID | Property |
+|----|----------|
+| INV-1 | `totalStaked` equals the sum of all actor stakes, per pool |
+| INV-2 | staking-token balance held >= `totalStaked` (solvency) |
+| INV-3 | tokens received minus tokens returned == `totalStaked` (ghost accounting) |
+| INV-4 | rewards paid per actor <= an independent model maximum (Linear only) |
+| INV-5 | `owner` changes only through an owner-authorized path |
+| INV-6 | nothing feeding reward-rate math is changeable by a non-owner |
+| INV-7 | no reward leaves before the cliff has elapsed |
+| INV-8 | any actor with a stake can always exit |
+| INV-9 | no handler call reverts with a Panic |
+
+Each invariant was also mutation-checked: reintroduce the bug and confirm that the matching invariant fails. See `FINDINGS.md` for the results.
+
+## Scope and caveats
+
+The invariant suite covers the ERC-20 path, the three strategies through the factory, admin functions and upgrade safety. The NFT path and fee-on-transfer tokens are not covered. This is a learning and practice project and **has not been audited**. Do not use it with real funds.

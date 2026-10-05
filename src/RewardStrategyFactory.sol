@@ -3,7 +3,7 @@ pragma solidity ^0.8.12;
 
 import {LinearRewardStrategy} from "./strategies/LinearRewardStrategy.sol";
 import {FixedPerBlockStrategy} from "./strategies/FixedPerBlockStrategy.sol";
-import {NFTBoostedStrategy} from "./strategies/NFTBoostedStrategy.sol";
+import {NftBoostedStrategy} from "./strategies/NftBoostedStrategy.sol";
 
 // Factory Contract
 contract RewardStrategyFactory {
@@ -47,7 +47,7 @@ contract RewardStrategyFactory {
         onlyOwner
         returns (address)
     {
-        NFTBoostedStrategy strategy = new NFTBoostedStrategy(baseYield, boostMultiplier);
+        NftBoostedStrategy strategy = new NftBoostedStrategy(baseYield, boostMultiplier);
         poolStrategy[poolId] = address(strategy);
         emit StrategyDeployed(address(strategy), poolId, "NFTBoosted");
         emit PoolStrategySet(poolId, address(strategy));

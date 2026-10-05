@@ -4,7 +4,7 @@ pragma solidity ^0.8.12;
 import {IRewardStrategy} from "../interfaces/IRewardStrategy.sol";
 
 // NFT Boosted Strategy
-contract NFTBoostedStrategy is IRewardStrategy {
+contract NftBoostedStrategy is IRewardStrategy {
     uint256 public baseYield;
     uint256 public boostMultiplier;
     mapping(address => uint256) public nftBalance;
