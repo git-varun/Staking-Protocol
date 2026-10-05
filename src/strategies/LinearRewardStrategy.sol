@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import "../interfaces/IRewardStrategy.sol";
+import {IRewardStrategy} from "../interfaces/IRewardStrategy.sol";
 
 // Linear Strategy
 contract LinearRewardStrategy is IRewardStrategy {
@@ -11,12 +11,12 @@ contract LinearRewardStrategy is IRewardStrategy {
         yieldPerSecond = _yieldPerSecond;
     }
 
-    function calculateReward(
-        address,
-        uint256,
-        uint256 stakedAmount,
-        uint256 lastStakeTime
-    ) external view override returns (uint256 rewardAmount) {
+    function calculateReward(address, uint256, uint256 stakedAmount, uint256 lastStakeTime)
+        external
+        view
+        override
+        returns (uint256 rewardAmount)
+    {
         uint256 timeDiff = block.timestamp - lastStakeTime;
         rewardAmount = (stakedAmount * timeDiff * yieldPerSecond) / 31536000;
     }

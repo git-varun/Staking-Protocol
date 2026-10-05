@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import "./interfaces/IRewardStrategy.sol";
-import "./strategies/LinearRewardStrategy.sol";
-import "./strategies/FixedPerBlockStrategy.sol";
-import "./strategies/NFTBoostedStrategy.sol";
+import {LinearRewardStrategy} from "./strategies/LinearRewardStrategy.sol";
+import {FixedPerBlockStrategy} from "./strategies/FixedPerBlockStrategy.sol";
+import {NFTBoostedStrategy} from "./strategies/NFTBoostedStrategy.sol";
 
 // Factory Contract
 contract RewardStrategyFactory {
@@ -15,12 +14,16 @@ contract RewardStrategyFactory {
     event PoolStrategySet(uint256 indexed poolId, address strategy);
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "Not authorized");
+        _onlyOwner();
         _;
     }
 
     constructor() {
         owner = msg.sender;
+    }
+
+    function _onlyOwner() internal {
+        require(msg.sender == owner, "Not authorized");
     }
 
     function deployLinearStrategy(uint256 poolId, uint256 yieldPerSecond) external onlyOwner returns (address) {
@@ -39,7 +42,11 @@ contract RewardStrategyFactory {
         return address(strategy);
     }
 
-    function deployNFTBoostedStrategy(uint256 poolId, uint256 baseYield, uint256 boostMultiplier) external onlyOwner returns (address) {
+    function deployNftBoostedStrategy(uint256 poolId, uint256 baseYield, uint256 boostMultiplier)
+        external
+        onlyOwner
+        returns (address)
+    {
         NFTBoostedStrategy strategy = new NFTBoostedStrategy(baseYield, boostMultiplier);
         poolStrategy[poolId] = address(strategy);
         emit StrategyDeployed(address(strategy), poolId, "NFTBoosted");

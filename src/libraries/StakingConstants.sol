@@ -7,8 +7,9 @@ library StakingConstants {
     // =============================================================================
     // ERROR MESSAGES
     // =============================================================================
-    
+
     string internal constant ERROR_NOT_OWNER = "StakingProtocol: Not owner";
+    string internal constant ERROR_UNCLAIMED_REWARD = "StakingProtocol: Unclaimed reward non-zero";
     string internal constant ERROR_PROTOCOL_PAUSED = "StakingProtocol: Protocol paused";
     string internal constant ERROR_POOL_INACTIVE = "StakingProtocol: Pool inactive";
     string internal constant ERROR_POOL_PAUSED = "StakingProtocol: Pool paused";

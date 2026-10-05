@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./StakingProxy.sol";
-import "../libraries/StakingConstants.sol";
+import {StakingProxy} from "./StakingProxy.sol";
+import {StakingConstants} from "../libraries/StakingConstants.sol";
 
 /// @title ProxyAdmin
 /// @notice Admin contract for managing proxy upgrades
@@ -13,12 +13,16 @@ contract ProxyAdmin {
     event ProxyAdminChanged(address indexed proxy, address indexed newAdmin);
 
     modifier onlyOwner() {
-        require(msg.sender == owner, StakingConstants.ERROR_NOT_OWNER);
+        _onlyOwner();
         _;
     }
 
     constructor() {
         owner = msg.sender;
+    }
+
+    function _onlyOwner() internal {
+        require(msg.sender == owner, StakingConstants.ERROR_NOT_OWNER);
     }
 
     /// @notice Upgrade proxy to new implementation
@@ -33,7 +37,7 @@ contract ProxyAdmin {
     /// @notice Change proxy admin
     /// @param proxyAddress Proxy contract address
     /// @param newAdmin New admin address
-    function changeProxyAdmin(address proxyAddress, address newAdmin) external onlyOwner {
+    function changeProxyAdmin(address payable proxyAddress, address newAdmin) external onlyOwner {
         require(proxyAddress != address(0), StakingConstants.ERROR_ZERO_ADDRESS);
         require(newAdmin != address(0), StakingConstants.ERROR_ZERO_ADDRESS);
         StakingProxy(proxyAddress).changeAdmin(newAdmin);

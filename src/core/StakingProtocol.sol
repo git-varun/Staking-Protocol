@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/utils/Context.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {Context} from "@openzeppelin/contracts/utils/Context.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import "../interfaces/IStakingProtocol.sol";
-import "../interfaces/IRewardStrategy.sol";
-import "../libraries/StakingConstants.sol";
+import {IStakingProtocol} from "../interfaces/IStakingProtocol.sol";
+import {IRewardStrategy} from "../interfaces/IRewardStrategy.sol";
+import {StakingConstants} from "../libraries/StakingConstants.sol";
 
 /// @title StakingProtocol
 /// @notice Main staking contract supporting ERC20 and ERC721 tokens
@@ -17,7 +17,7 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
     // =============================================================================
     // STATE VARIABLES
     // =============================================================================
-    
+
     address public owner;
     uint256 public poolCount;
     uint256 public cliff;
@@ -29,16 +29,16 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
     mapping(uint256 => bool) public poolStatus;
     mapping(uint256 => bool) public poolPaused;
     mapping(uint256 => address) public nftContractPerPool;
-    mapping(address => mapping(uint256 => mapping(uint256 => NFTStakeInfo))) public nftStakes;
+    mapping(address => mapping(uint256 => mapping(uint256 => NftStakeInfo))) public nftStakes;
     mapping(uint256 => address) public rewardStrategies;
 
     // Reserved storage space for upgradeability
-    uint256[40] private __gap;
+    uint256[40] private _gap;
 
     // =============================================================================
     // EVENTS
     // =============================================================================
-    
+
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event ProtocolInitialized(address indexed owner, uint256 cliffDuration);
     event CliffUpdated(uint256 newCliff);
@@ -48,29 +48,26 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
     // =============================================================================
     // MODIFIERS
     // =============================================================================
-    
+
     modifier onlyOwner() {
-        require(msg.sender == owner, StakingConstants.ERROR_NOT_OWNER);
+        _onlyOwner();
         _;
     }
 
     modifier whenNotPaused() {
-        require(!paused, StakingConstants.ERROR_PROTOCOL_PAUSED);
+        _whenNotPaused();
         _;
     }
 
     modifier whenPoolActive(uint256 poolId) {
-        require(!paused, StakingConstants.ERROR_PROTOCOL_PAUSED);
-        require(poolId > 0 && poolId <= poolCount, StakingConstants.ERROR_INVALID_POOL);
-        require(poolStatus[poolId], StakingConstants.ERROR_POOL_INACTIVE);
-        require(!poolPaused[poolId], StakingConstants.ERROR_POOL_PAUSED);
+        _whenPoolIsActive(poolId);
         _;
     }
 
     // =============================================================================
     // INITIALIZER
     // =============================================================================
-    
+
     bool private _initialized;
 
     /// @notice Initialize the staking protocol (for proxy pattern)
@@ -79,13 +76,13 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
     function initialize(address _owner, uint256 _cliff) external {
         require(!_initialized, StakingConstants.ERROR_ALREADY_INITIALIZED);
         require(_owner != address(0), StakingConstants.ERROR_ZERO_ADDRESS);
-        
+
         owner = _owner;
         cliff = _cliff;
         poolCount = 0;
         paused = false;
         _initialized = true;
-        
+
         emit OwnershipTransferred(address(0), _owner);
         emit ProtocolInitialized(_owner, _cliff);
     }
@@ -93,13 +90,33 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
     // =============================================================================
     // ADMIN FUNCTIONS
     // =============================================================================
-    
+
+    function _onlyOwner() internal {
+        require(msg.sender == owner, StakingConstants.ERROR_NOT_OWNER);
+    }
+
+    function _whenNotPaused() internal {
+        require(!paused, StakingConstants.ERROR_PROTOCOL_PAUSED);
+    }
+
+    function _whenPoolIsActive(uint256 poolId) internal {
+        require(!paused, StakingConstants.ERROR_PROTOCOL_PAUSED);
+        require(poolId > 0 && poolId <= poolCount, StakingConstants.ERROR_INVALID_POOL);
+        require(poolStatus[poolId], StakingConstants.ERROR_POOL_INACTIVE);
+        require(!poolPaused[poolId], StakingConstants.ERROR_POOL_PAUSED);
+    }
+
     /// @notice Set cliff period for staking
     /// @param _cliff New cliff duration in seconds
     function setCliff(uint256 _cliff) external onlyOwner {
         require(_cliff > 0, StakingConstants.ERROR_INVALID_CLIFF);
         cliff = _cliff;
         emit CliffUpdated(_cliff);
+    }
+
+    function setNftContractPerPool(uint256 _poolId, address _nftContract) external onlyOwner {
+        require(_nftContract != address(0), StakingConstants.ERROR_ZERO_ADDRESS);
+        nftContractPerPool[_poolId] = _nftContract;
     }
 
     /// @notice Pause/unpause entire protocol
@@ -148,33 +165,31 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
     /// @param stakingToken ERC20 token to stake
     /// @param rewardToken ERC20 reward token
     /// @param yieldPerSecond Reward yield per second
-    function createPool(
-        address stakingToken,
-        address rewardToken,
-        uint256 yieldPerSecond
-    ) external onlyOwner {
+    function createPool(address stakingToken, address rewardToken, uint256 yieldPerSecond) external onlyOwner {
         require(stakingToken != address(0), StakingConstants.ERROR_ZERO_ADDRESS);
         require(rewardToken != address(0), StakingConstants.ERROR_ZERO_ADDRESS);
-        
+
         poolCount += 1;
-        pools[poolCount] = PoolInfo(stakingToken, rewardToken, yieldPerSecond, 0);
+        pools[poolCount] = PoolInfo({stakingToken:stakingToken, rewardToken:rewardToken, yieldPerSecond:yieldPerSecond, totalStaked:0});
         poolStatus[poolCount] = true;
-        
+
         emit PoolCreated(poolCount, stakingToken, rewardToken, yieldPerSecond);
     }
 
     // =============================================================================
     // ERC20 STAKING FUNCTIONS
     // =============================================================================
-    
+
     /// @notice Stake ERC20 tokens in a pool
     /// @param poolId Pool identifier
     /// @param amount Amount to stake
     function stakeToken(uint256 poolId, uint256 amount) external whenPoolActive(poolId) nonReentrant {
         require(amount > 0, StakingConstants.ERROR_INVALID_AMOUNT);
-        
+
         PoolInfo storage _pool = pools[poolId];
         StakingInfo storage _info = stakes[_msgSender()][poolId];
+
+        require(fetchUnclaimedReward(poolId) == 0, StakingConstants.ERROR_UNCLAIMED_REWARD);
 
         // Validate allowance and balance
         require(
@@ -182,20 +197,19 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
             StakingConstants.ERROR_INSUFFICIENT_ALLOWANCE
         );
         require(
-            IERC20(_pool.stakingToken).balanceOf(_msgSender()) >= amount,
-            StakingConstants.ERROR_INSUFFICIENT_BALANCE
+            IERC20(_pool.stakingToken).balanceOf(_msgSender()) >= amount, StakingConstants.ERROR_INSUFFICIENT_BALANCE
         );
 
-        // Claim pending rewards if exists
-        if (_info.stakeAmount > 0) {
-            uint256 reward = fetchUnclaimedReward(poolId);
-            if (reward > 0) {
-                _safeTransfer(_pool.rewardToken, _msgSender(), reward);
-            }
-        }
+        //        // Claim pending rewards if exists
+        //        if (_info.stakeAmount > 0 ) {
+        //            uint256 reward = fetchUnclaimedReward(poolId);
+        //            if (reward > 0) {
+        //                _safeTransfer(_pool.rewardToken, _msgSender(), reward);
+        //            }
+        //        }
 
         // Update staking info
-        _info.stakeAmount += uint96(amount);
+        _info.stakeAmount += amount;
         _info.stakeTime = uint64(block.timestamp);
         _pool.totalStaked += amount;
 
@@ -204,24 +218,20 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
             IERC20(_pool.stakingToken).transferFrom(_msgSender(), address(this), amount),
             StakingConstants.ERROR_TRANSFER_FAILED
         );
-        
+
         emit Staked(_msgSender(), amount, poolId, block.timestamp);
     }
 
     /// @notice Claim rewards and optionally unstake
     /// @param poolId Pool identifier
     /// @param unStaking True to unstake, false to only claim rewards
-    function claimRewards(uint256 poolId, bool unStaking) 
-        external 
-        whenPoolActive(poolId) 
-        nonReentrant 
-    {
+    function claimRewards(uint256 poolId, bool unStaking) external whenPoolActive(poolId) nonReentrant {
         StakingInfo storage _info = stakes[_msgSender()][poolId];
         PoolInfo storage _pool = pools[poolId];
-        
+
         require(_info.stakeAmount > 0, StakingConstants.ERROR_NO_STAKE);
         require(block.timestamp >= _info.stakeTime + cliff, StakingConstants.ERROR_CLIFF_NOT_PASSED);
-        
+
         uint256 reward = fetchUnclaimedReward(poolId);
         require(reward > 0, StakingConstants.ERROR_NO_REWARD);
 
@@ -229,16 +239,13 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
             uint256 amount = _info.stakeAmount;
             _pool.totalStaked -= amount;
             _info.stakeAmount = 0;
-            
-            require(
-                IERC20(_pool.stakingToken).transfer(_msgSender(), amount),
-                StakingConstants.ERROR_TRANSFER_FAILED
-            );
+
+            require(IERC20(_pool.stakingToken).transfer(_msgSender(), amount), StakingConstants.ERROR_TRANSFER_FAILED);
         }
 
         _info.stakeTime = uint64(block.timestamp);
         _safeTransfer(_pool.rewardToken, _msgSender(), reward);
-        
+
         emit Claimed(_msgSender(), reward, poolId, block.timestamp, unStaking);
     }
 
@@ -247,60 +254,58 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
     function emergencyWithdraw(uint256 poolId) external nonReentrant {
         StakingInfo storage _info = stakes[_msgSender()][poolId];
         PoolInfo storage _pool = pools[poolId];
-        
+
         uint256 amount = _info.stakeAmount;
         require(amount > 0, StakingConstants.ERROR_NO_STAKE);
-        
+
         _info.stakeAmount = 0;
         _pool.totalStaked -= amount;
-        
-        require(
-            IERC20(_pool.stakingToken).transfer(_msgSender(), amount),
-            StakingConstants.ERROR_TRANSFER_FAILED
-        );
-        
+
+        require(IERC20(_pool.stakingToken).transfer(_msgSender(), amount), StakingConstants.ERROR_TRANSFER_FAILED);
+
         emit EmergencyWithdraw(_msgSender(), poolId, amount, block.timestamp);
     }
 
     // =============================================================================
     // ERC721 STAKING FUNCTIONS
     // =============================================================================
-    
+
     /// @notice Stake an NFT in a pool
     /// @param poolId Pool identifier
     /// @param nftAddress NFT contract address
     /// @param tokenId NFT token ID
-    function stakeNFT(uint256 poolId, address nftAddress, uint256 tokenId) 
-        external 
-        whenPoolActive(poolId) 
-        nonReentrant 
+    function stakeNft(uint256 poolId, address nftAddress, uint256 tokenId)
+        external
+        whenPoolActive(poolId)
+        nonReentrant
     {
         require(IERC721(nftAddress).ownerOf(tokenId) == _msgSender(), StakingConstants.ERROR_NOT_NFT_OWNER);
         require(nftAddress == nftContractPerPool[poolId], StakingConstants.ERROR_NFT_NOT_ALLOWED);
 
-        NFTStakeInfo storage stakeRecord = nftStakes[_msgSender()][poolId][tokenId];
+        NftStakeInfo storage stakeRecord = nftStakes[_msgSender()][poolId][tokenId];
         require(stakeRecord.stakeTime == 0, StakingConstants.ERROR_NFT_ALREADY_STAKED);
 
         IERC721(nftAddress).transferFrom(_msgSender(), address(this), tokenId);
-        nftStakes[_msgSender()][poolId][tokenId] = NFTStakeInfo(tokenId, block.timestamp);
-        
-        emit NFTStaked(_msgSender(), poolId, tokenId, block.timestamp);
+        NftStakeInfo memory updatedStakedRecord = NftStakeInfo(tokenId, block.timestamp);
+        nftStakes[_msgSender()][poolId][tokenId] = updatedStakedRecord;
+
+        emit NftStaked(_msgSender(), poolId, tokenId, block.timestamp);
     }
 
     /// @notice Unstake an NFT and claim rewards
     /// @param poolId Pool identifier
     /// @param nftAddress NFT contract address
     /// @param tokenId NFT token ID
-    function unstakeNFT(uint256 poolId, address nftAddress, uint256 tokenId) 
-        external 
-        whenPoolActive(poolId) 
-        nonReentrant 
+    function unstakeNft(uint256 poolId, address nftAddress, uint256 tokenId)
+        external
+        whenPoolActive(poolId)
+        nonReentrant
     {
-        NFTStakeInfo storage info = nftStakes[_msgSender()][poolId][tokenId];
+        NftStakeInfo storage info = nftStakes[_msgSender()][poolId][tokenId];
         require(info.stakeTime != 0, StakingConstants.ERROR_NFT_NOT_STAKED);
         require(block.timestamp >= info.stakeTime + cliff, StakingConstants.ERROR_CLIFF_NOT_PASSED);
 
-        uint256 reward = fetchUnclaimedNFTReward(poolId, tokenId);
+        uint256 reward = fetchUnclaimedNftReward(poolId, tokenId);
         delete nftStakes[_msgSender()][poolId][tokenId];
 
         IERC721(nftAddress).transferFrom(address(this), _msgSender(), tokenId);
@@ -309,27 +314,22 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
             _safeTransfer(pools[poolId].rewardToken, _msgSender(), reward);
         }
 
-        emit NFTUnstaked(_msgSender(), poolId, tokenId, block.timestamp);
+        emit NftUnstaked(_msgSender(), poolId, tokenId, block.timestamp);
     }
 
     // =============================================================================
     // VIEW FUNCTIONS
     // =============================================================================
-    
+
     /// @notice Calculate unclaimed rewards for staked tokens
     /// @param poolId Pool identifier
     /// @return Unclaimed reward amount
     function fetchUnclaimedReward(uint256 poolId) public view returns (uint256) {
         StakingInfo storage _info = stakes[_msgSender()][poolId];
         address strategy = rewardStrategies[poolId];
-        
+
         if (strategy != address(0) && _info.stakeAmount > 0) {
-            return IRewardStrategy(strategy).calculateReward(
-                _msgSender(),
-                poolId,
-                _info.stakeAmount,
-                _info.stakeTime
-            );
+            return IRewardStrategy(strategy).calculateReward(_msgSender(), poolId, _info.stakeAmount, _info.stakeTime);
         }
         return 0;
     }
@@ -338,14 +338,14 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
     /// @param poolId Pool identifier
     /// @param tokenId NFT token ID
     /// @return Unclaimed reward amount
-    function fetchUnclaimedNFTReward(uint256 poolId, uint256 tokenId) public view returns (uint256) {
-        NFTStakeInfo storage info = nftStakes[_msgSender()][poolId][tokenId];
+    function fetchUnclaimedNftReward(uint256 poolId, uint256 tokenId) public view returns (uint256) {
+        NftStakeInfo storage info = nftStakes[_msgSender()][poolId][tokenId];
         PoolInfo storage _pool = pools[poolId];
-        
+
         if (info.stakeTime == 0 || block.timestamp < info.stakeTime + cliff) {
             return 0;
         }
-        
+
         uint256 duration = block.timestamp - info.stakeTime - cliff;
         return duration * _pool.yieldPerSecond;
     }
@@ -377,15 +377,12 @@ contract StakingProtocol is Context, ReentrancyGuard, IStakingProtocol {
     // =============================================================================
     // INTERNAL FUNCTIONS
     // =============================================================================
-    
+
     /// @notice Safe token transfer with error handling
     /// @param token Token address
     /// @param to Recipient address
     /// @param amount Transfer amount
     function _safeTransfer(address token, address to, uint256 amount) internal {
-        require(
-            IERC20(token).transfer(to, amount),
-            StakingConstants.ERROR_TRANSFER_FAILED
-        );
+        require(IERC20(token).transfer(to, amount), StakingConstants.ERROR_TRANSFER_FAILED);
     }
 }
